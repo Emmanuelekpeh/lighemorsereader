@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Camera, Settings2, Play, Square, Save, RotateCcw, AlertTriangle, Activity, Database, Lightbulb, MessageSquareText } from "lucide-react";
+import { Camera, Settings2, Play, Square, Save, RotateCcw, AlertTriangle, Activity, Database, Lightbulb, MessageSquareText, Zap } from "lucide-react";
 import { useMorseReader } from "@/hooks/use-morse-reader";
 import { useMessages, useCreateMessage, useDeleteMessage } from "@/hooks/use-messages";
 import { Button } from "@/components/ui/button";
@@ -141,6 +141,29 @@ export default function Home() {
             </div>
 
             <div className="space-y-8">
+              {/* Signal Mode Toggle */}
+              <div className="space-y-3">
+                <label className="text-sm font-medium">Detection Mode</label>
+                <div className="grid grid-cols-2 gap-2 p-1 bg-black/20 rounded-xl border border-white/5">
+                  <Button 
+                    variant={reader.colorMode === 'grayscale' ? 'secondary' : 'ghost'} 
+                    size="sm"
+                    onClick={() => reader.setColorMode('grayscale')}
+                    className="rounded-lg h-8 gap-2"
+                  >
+                    <Lightbulb className="w-3 h-3" /> Brightness
+                  </Button>
+                  <Button 
+                    variant={reader.colorMode === 'red' ? 'secondary' : 'ghost'} 
+                    size="sm"
+                    onClick={() => reader.setColorMode('red')}
+                    className="rounded-lg h-8 gap-2"
+                  >
+                    <Zap className="w-3 h-3 text-red-500" /> Red LED
+                  </Button>
+                </div>
+              </div>
+
               {/* Camera Toggle */}
               <div className="flex justify-between items-center bg-black/20 p-4 rounded-2xl border border-white/5">
                  <div>

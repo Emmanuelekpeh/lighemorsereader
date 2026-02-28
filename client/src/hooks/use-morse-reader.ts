@@ -11,6 +11,7 @@ export function useMorseReader() {
   // Adjustable settings
   const [threshold, setThreshold] = useState(150); // 0-255 brightness
   const [unitTime, setUnitTime] = useState(200); // ms per dot
+  const [colorMode, setColorMode] = useState<'grayscale' | 'red'>('grayscale');
   
   // Live state for UI
   const [currentBrightness, setCurrentBrightness] = useState(0);
@@ -22,6 +23,7 @@ export function useMorseReader() {
   const stateRef = useRef({
     threshold: 150,
     unitTime: 200,
+    colorMode: 'grayscale' as 'grayscale' | 'red',
     lastLightState: false,
     stateChangeTime: performance.now(),
     currentSymbol: '',
@@ -34,6 +36,7 @@ export function useMorseReader() {
   // Sync state to refs
   useEffect(() => { stateRef.current.threshold = threshold; }, [threshold]);
   useEffect(() => { stateRef.current.unitTime = unitTime; }, [unitTime]);
+  useEffect(() => { stateRef.current.colorMode = colorMode; }, [colorMode]);
 
   const processFrame = useCallback(() => {
     const video = videoRef.current;
@@ -50,14 +53,23 @@ export function useMorseReader() {
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
     
-    // Calculate average perceived brightness
+    // Calculate average perceived brightness or red intensity
     let sum = 0;
+    const s = stateRef.current;
     for (let i = 0; i < frame.data.length; i += 4) {
-      sum += 0.299 * frame.data[i] + 0.587 * frame.data[i+1] + 0.114 * frame.data[i+2];
+      if (s.colorMode === 'red') {
+        // Red intensity: Red channel minus average of Blue and Green to isolate red light
+        const red = frame.data[i];
+        const green = frame.data[i+1];
+        const blue = frame.data[i+2];
+        sum += Math.max(0, red - (green + blue) / 2);
+      } else {
+        // Standard grayscale luminance
+        sum += 0.299 * frame.data[i] + 0.587 * frame.data[i+1] + 0.114 * frame.data[i+2];
+      }
     }
     const brightness = sum / (canvas.width * canvas.height);
     
-    const s = stateRef.current;
     const isOn = brightness > s.threshold;
     const now = performance.now();
     const duration = now - s.stateChangeTime;
@@ -188,6 +200,8 @@ export function useMorseReader() {
     currentBrightness,
     isLightOn,
     rawMorse,
-    decodedText
+    decodedText,
+    colorMode,
+    setColorMode
   };
 }
