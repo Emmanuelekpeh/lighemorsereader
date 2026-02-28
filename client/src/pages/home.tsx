@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Camera, Settings2, Play, Square, Save, RotateCcw, AlertTriangle, Activity, Database, Lightbulb } from "lucide-react";
+import { Camera, Settings2, Play, Square, Save, RotateCcw, AlertTriangle, Activity, Database, Lightbulb, MessageSquareText } from "lucide-react";
 import { useMorseReader } from "@/hooks/use-morse-reader";
 import { useMessages, useCreateMessage, useDeleteMessage } from "@/hooks/use-messages";
 import { Button } from "@/components/ui/button";
