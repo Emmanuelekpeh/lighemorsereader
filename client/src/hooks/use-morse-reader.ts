@@ -9,9 +9,18 @@ export function useMorseReader() {
   const [cameraError, setCameraError] = useState<string | null>(null);
   
   // Adjustable settings
-  const [threshold, setThreshold] = useState(150); // 0-255 brightness
-  const [unitTime, setUnitTime] = useState(200); // ms per dot
-  const [colorMode, setColorMode] = useState<'grayscale' | 'red' | 'green'>('grayscale');
+  const [threshold, setThreshold] = useState(() => {
+    const saved = localStorage.getItem('morse_threshold');
+    return saved ? parseInt(saved, 10) : 150;
+  });
+  const [unitTime, setUnitTime] = useState(() => {
+    const saved = localStorage.getItem('morse_unitTime');
+    return saved ? parseInt(saved, 10) : 200;
+  });
+  const [colorMode, setColorMode] = useState<'grayscale' | 'red' | 'green'>(() => {
+    const saved = localStorage.getItem('morse_colorMode');
+    return (saved as 'grayscale' | 'red' | 'green') || 'grayscale';
+  });
   
   // Live state for UI
   const [currentBrightness, setCurrentBrightness] = useState(0);
@@ -20,31 +29,84 @@ export function useMorseReader() {
   const [decodedText, setDecodedText] = useState('');
   const [trackingSpot, setTrackingSpot] = useState<{x: number, y: number} | null>(null);
   
-  const [focusMode, setFocusMode] = useState<'auto' | 'manual'>('auto');
-  const [manualSpot, setManualSpot] = useState<{x: number, y: number} | null>(null);
+  const [focusMode, setFocusMode] = useState<'auto' | 'manual'>(() => {
+    const saved = localStorage.getItem('morse_focusMode');
+    return (saved as 'auto' | 'manual') || 'auto';
+  });
+  const [manualSpot, setManualSpot] = useState<{x: number, y: number} | null>(() => {
+    const saved = localStorage.getItem('morse_manualSpot');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  });
+  const [autoThreshold, setAutoThreshold] = useState(() => {
+    const saved = localStorage.getItem('morse_autoThreshold');
+    return saved ? saved === 'true' : true;
+  });
 
   // Refs for requestAnimationFrame loop to avoid stale closures
   const stateRef = useRef({
-    threshold: 150,
-    unitTime: 200,
-    colorMode: 'grayscale' as 'grayscale' | 'red' | 'green',
-    focusMode: 'auto' as 'auto' | 'manual',
-    manualSpot: null as {x: number, y: number} | null,
+    threshold: threshold,
+    unitTime: unitTime,
+    colorMode: colorMode,
+    focusMode: focusMode,
+    manualSpot: manualSpot,
+    autoThreshold: autoThreshold,
+    localMin: 255,
+    localMax: 0,
     lastLightState: false,
+    pendingLightState: false,
+    pendingLightStateTime: performance.now(),
     stateChangeTime: performance.now(),
+    lastTrackX: -1,
+    lastTrackY: -1,
     currentSymbol: '',
     finalRawMorse: '',
     finalDecodedText: '',
     animationFrameId: 0,
-    frameCount: 0
+    frameCount: 0,
+    lastFrameTime: 0
   });
 
-  // Sync state to refs
-  useEffect(() => { stateRef.current.threshold = threshold; }, [threshold]);
-  useEffect(() => { stateRef.current.unitTime = unitTime; }, [unitTime]);
-  useEffect(() => { stateRef.current.colorMode = colorMode; }, [colorMode]);
-  useEffect(() => { stateRef.current.focusMode = focusMode; }, [focusMode]);
-  useEffect(() => { stateRef.current.manualSpot = manualSpot; }, [manualSpot]);
+  // Sync state to refs and localStorage
+  useEffect(() => { 
+    stateRef.current.threshold = threshold; 
+    localStorage.setItem('morse_threshold', threshold.toString());
+  }, [threshold]);
+  
+  useEffect(() => { 
+    stateRef.current.unitTime = unitTime; 
+    localStorage.setItem('morse_unitTime', unitTime.toString());
+  }, [unitTime]);
+  
+  useEffect(() => { 
+    stateRef.current.colorMode = colorMode; 
+    localStorage.setItem('morse_colorMode', colorMode);
+  }, [colorMode]);
+  
+  useEffect(() => { 
+    stateRef.current.focusMode = focusMode; 
+    localStorage.setItem('morse_focusMode', focusMode);
+  }, [focusMode]);
+  
+  useEffect(() => { 
+    stateRef.current.manualSpot = manualSpot; 
+    if (manualSpot) {
+      localStorage.setItem('morse_manualSpot', JSON.stringify(manualSpot));
+    } else {
+      localStorage.removeItem('morse_manualSpot');
+    }
+  }, [manualSpot]);
+  
+  useEffect(() => { 
+    stateRef.current.autoThreshold = autoThreshold; 
+    localStorage.setItem('morse_autoThreshold', autoThreshold.toString());
+  }, [autoThreshold]);
 
   const processFrame = useCallback(() => {
     const video = videoRef.current;
@@ -54,6 +116,11 @@ export function useMorseReader() {
       return;
     }
 
+    const now = performance.now();
+    // For fast microcontroller (Pico) tracking, we want the highest frame rate possible.
+    // Ensure we process every available frame from requestAnimationFrame (typically 60fps)
+    stateRef.current.lastFrameTime = now;
+
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
 
@@ -62,11 +129,13 @@ export function useMorseReader() {
     const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
     
     // Calculate max intensity spot for small LED detection
-    let maxIntensity = 0;
-    let maxX = 0;
-    let maxY = 0;
+    let maxIntensity = -1;
+    let maxX = s.lastTrackX !== -1 ? s.lastTrackX : Math.floor(canvas.width / 2);
+    let maxY = s.lastTrackY !== -1 ? s.lastTrackY : Math.floor(canvas.height / 2);
     const s = stateRef.current;
     
+    // Optimized pixel reading loop (using typed arrays where possible could improve performance further, 
+    // but a 64x64 canvas means only 4096 iterations which takes < 1ms on modern devices)
     if (s.focusMode === 'manual' && s.manualSpot) {
       // Look at the specific area around the manual spot
       const x = Math.floor((s.manualSpot.x / 100) * canvas.width);
@@ -98,47 +167,97 @@ export function useMorseReader() {
         }
       }
     } else {
-      // Auto mode: scan everything
+      // Auto mode: scan everything with a preference for the previous tracking spot (stickiness)
+      const maxDist = Math.sqrt(canvas.width * canvas.width + canvas.height * canvas.height);
+      
       for (let i = 0; i < frame.data.length; i += 4) {
+        const cx = (i / 4) % canvas.width;
+        const cy = Math.floor((i / 4) / canvas.width);
+        
         let intensity = 0;
+        const r = frame.data[i];
+        const g = frame.data[i+1];
+        const b = frame.data[i+2];
+
         if (s.colorMode === 'red') {
-          // Red intensity: Red channel minus average of Blue and Green to isolate red light
-          const red = frame.data[i];
-          const green = frame.data[i+1];
-          const blue = frame.data[i+2];
-          intensity = Math.max(0, red - (green + blue) / 2);
+          if (r > 240 && g > 240 && b > 240) intensity = r; // Handle overexposed white LED center
+          else intensity = Math.max(0, r - (g + b) / 2);
         } else if (s.colorMode === 'green') {
-          // Green intensity: Green channel minus average of Red and Blue to isolate green light
-          const red = frame.data[i];
-          const green = frame.data[i+1];
-          const blue = frame.data[i+2];
-          intensity = Math.max(0, green - (red + blue) / 2);
+          if (r > 240 && g > 240 && b > 240) intensity = g; // Handle overexposed white LED center
+          else intensity = Math.max(0, g - (r + b) / 2);
         } else {
-          // Standard grayscale luminance
-          intensity = 0.299 * frame.data[i] + 0.587 * frame.data[i+1] + 0.114 * frame.data[i+2];
+          intensity = 0.299 * r + 0.587 * g + 0.114 * b;
+        }
+        
+        // Add spatial stickiness if we have a previous tracking spot
+        if (s.lastTrackX !== -1) {
+          const dist = Math.sqrt(Math.pow(cx - s.lastTrackX, 2) + Math.pow(cy - s.lastTrackY, 2));
+          // Penalize pixels that are further away from the last known spot
+          // This keeps the tracker locked onto the Pico even if another bright reflection appears
+          const distancePenalty = (dist / maxDist) * 30; // Max penalty of 30 intensity points
+          intensity -= distancePenalty;
         }
         
         if (intensity > maxIntensity) {
           maxIntensity = intensity;
-          const pixelIndex = i / 4;
-          maxX = pixelIndex % canvas.width;
-          maxY = Math.floor(pixelIndex / canvas.width);
+          maxX = cx;
+          maxY = cy;
         }
       }
     }
     
     // Use the single brightest pixel's intensity rather than the average.
     // This allows detecting tiny LEDs from far away without the background diluting the signal.
-    const brightness = maxIntensity;
+    const brightness = Math.max(0, maxIntensity); // clamp bottom in case of negative distance penalties
     
-    const isOn = brightness > s.threshold;
-    const now = performance.now();
+    // Save tracking spot for next frame's hysteresis
+    s.lastTrackX = maxX;
+    s.lastTrackY = maxY;
+    
+    if (s.autoThreshold) {
+      if (brightness > s.localMax) s.localMax = brightness;
+      if (brightness < s.localMin) s.localMin = brightness;
+      
+      // Slow decay to adapt to changing ambient light
+      s.localMax -= 0.5;
+      s.localMin += 0.5;
+      
+      // Keep bounds
+      if (s.localMax < brightness) s.localMax = brightness;
+      if (s.localMin > brightness) s.localMin = brightness;
+      
+      // Only adjust threshold if we have a reasonable spread (prevent noise from triggering)
+      if (s.localMax - s.localMin > 10) {
+        // Set threshold halfway between min and max
+        s.threshold = s.localMin + (s.localMax - s.localMin) * 0.5; 
+      }
+    }
+    
+    const rawIsOn = brightness > s.threshold;
+    
+    // Debounce light state to filter out 1-frame camera glitches / noise
+    if (rawIsOn !== s.pendingLightState) {
+      s.pendingLightState = rawIsOn;
+      s.pendingLightStateTime = now;
+    }
+    
+    let isOn = s.lastLightState;
+    // Require the state to be stable for a fraction of the dot duration to register as a genuine change.
+    // This dynamically scales with unitTime to allow for very fast machine-generated morse from a Pico.
+    const debounceTime = Math.min(20, s.unitTime * 0.3);
+    if (s.pendingLightState !== s.lastLightState && (now - s.pendingLightStateTime) >= debounceTime) {
+      isOn = s.pendingLightState;
+    }
+    
     const duration = now - s.stateChangeTime;
 
     // Update UI less frequently (every ~6 frames / 100ms) to save render cycles
     s.frameCount++;
     if (s.frameCount % 6 === 0) {
       setCurrentBrightness(Math.round(brightness));
+      if (s.autoThreshold) {
+        setThreshold(Math.round(s.threshold));
+      }
       setTrackingSpot({ 
         x: (maxX / canvas.width) * 100, 
         y: (maxY / canvas.height) * 100 
@@ -189,14 +308,22 @@ export function useMorseReader() {
       setDecodedText(s.finalDecodedText);
 
     } else {
-      // State hasn't changed. Check if we need to auto-resolve a trailing character
-      if (!isOn && s.currentSymbol) {
-        if (duration >= s.unitTime * 2.5) {
+      // State hasn't changed. Check if we need to auto-resolve a trailing character or add a word gap
+      if (!isOn) {
+        if (s.currentSymbol && duration >= s.unitTime * 2.5) {
           s.finalDecodedText += decodeMorseSymbol(s.currentSymbol);
           s.finalRawMorse += ' ';
           s.currentSymbol = '';
           setRawMorse(s.finalRawMorse);
           setDecodedText(s.finalDecodedText);
+        } else if (!s.currentSymbol && duration >= s.unitTime * 5.5) {
+          // If a long gap happens after a letter, add a space to signify word completion
+          if (s.finalRawMorse && !s.finalRawMorse.endsWith(' / ')) {
+            s.finalRawMorse = s.finalRawMorse.trimEnd() + ' / ';
+            s.finalDecodedText = s.finalDecodedText.trimEnd() + ' ';
+            setRawMorse(s.finalRawMorse);
+            setDecodedText(s.finalDecodedText);
+          }
         }
       }
     }
@@ -208,7 +335,12 @@ export function useMorseReader() {
     try {
       setCameraError(null);
       const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment' } // Prefer back camera on mobile
+        video: { 
+          facingMode: 'environment', // Prefer back camera on mobile
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 60 } // Request high framerate for fast Pico morse
+        } 
       });
       
       if (videoRef.current) {
@@ -247,6 +379,9 @@ export function useMorseReader() {
   useEffect(() => {
     return () => {
       stopStream();
+      if (stateRef.current.animationFrameId) {
+        cancelAnimationFrame(stateRef.current.animationFrameId);
+      }
     };
   }, []);
 
@@ -272,6 +407,8 @@ export function useMorseReader() {
     focusMode,
     setFocusMode,
     manualSpot,
-    setManualSpot
+    setManualSpot,
+    autoThreshold,
+    setAutoThreshold
   };
 }

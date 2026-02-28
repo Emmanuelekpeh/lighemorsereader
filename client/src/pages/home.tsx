@@ -4,6 +4,7 @@ import { useMorseReader } from "@/hooks/use-morse-reader";
 import { useMessages, useCreateMessage, useDeleteMessage } from "@/hooks/use-messages";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import { MessageCard } from "@/components/message-card";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -12,6 +13,26 @@ export default function Home() {
   const { data: messages, isLoading: isMessagesLoading } = useMessages();
   const createMessage = useCreateMessage();
   const deleteMessage = useDeleteMessage();
+
+  // Debounced auto-save effect
+  useEffect(() => {
+    if (!reader.decodedText || !reader.rawMorse) return;
+
+    const timer = setTimeout(() => {
+      // Only auto-save if we have at least a few characters to avoid spamming the DB
+      // and ensure we're not actively receiving a new symbol
+      if (reader.decodedText.length > 3 && !reader.isLightOn) {
+         createMessage.mutate({
+            content: reader.decodedText.trim(),
+            rawMorse: reader.rawMorse.trim()
+         }, {
+            onSuccess: () => reader.clearData()
+         });
+      }
+    }, 5000); // Wait 5 seconds after last change before auto-saving
+
+    return () => clearTimeout(timer);
+  }, [reader.decodedText, reader.rawMorse, reader.isLightOn]);
 
   const handleSave = () => {
     if (!reader.decodedText && !reader.rawMorse) return;
@@ -30,6 +51,15 @@ export default function Home() {
     const y = ((e.clientY - rect.top) / rect.height) * 100;
     reader.setManualSpot({ x, y });
     reader.setFocusMode('manual');
+    
+    // Provide brief visual feedback that tracking spot changed
+    const targetElement = document.getElementById('tracking-spot');
+    if (targetElement) {
+      targetElement.classList.add('scale-150', 'ring-4', 'ring-primary');
+      setTimeout(() => {
+        targetElement.classList.remove('scale-150', 'ring-4', 'ring-primary');
+      }, 300);
+    }
   };
 
   return (
@@ -71,6 +101,7 @@ export default function Home() {
             {/* Tracking Spot Overlay */}
             {reader.isStreaming && reader.trackingSpot && (
               <div 
+                id="tracking-spot"
                 className={`absolute w-12 h-12 border-2 rounded-xl pointer-events-none transition-all duration-75 transform -translate-x-1/2 -translate-y-1/2 ${
                   reader.isLightOn 
                     ? 'border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.8)] scale-110' 
@@ -249,18 +280,34 @@ export default function Home() {
               {/* Threshold Slider */}
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
-                  <label className="text-sm font-medium">Light Sensitivity</label>
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-medium">Light Sensitivity</label>
+                    <div className="flex items-center gap-1.5 ml-2">
+                      <Switch 
+                        id="auto-threshold" 
+                        checked={reader.autoThreshold}
+                        onCheckedChange={reader.setAutoThreshold}
+                        className="scale-75 data-[state=checked]:bg-primary"
+                      />
+                      <label htmlFor="auto-threshold" className="text-xs text-muted-foreground cursor-pointer select-none">Auto</label>
+                    </div>
+                  </div>
                   <span className="text-xs font-mono text-primary bg-primary/10 px-2 py-1 rounded">
                     {reader.threshold}/255
                   </span>
                 </div>
-                <Slider 
-                  value={[reader.threshold]} 
-                  onValueChange={(val) => reader.setThreshold(val[0])}
-                  max={255} 
-                  step={1}
-                  className="[&_[role=slider]]:bg-primary"
-                />
+                <div className={reader.autoThreshold ? "opacity-50 pointer-events-none" : ""}>
+                  <Slider 
+                    value={[reader.threshold]} 
+                    onValueChange={(val) => {
+                      reader.setThreshold(val[0]);
+                      if (reader.autoThreshold) reader.setAutoThreshold(false);
+                    }}
+                    max={255} 
+                    step={1}
+                    className="[&_[role=slider]]:bg-primary"
+                  />
+                </div>
                 
                 {/* Visualizer Bar */}
                 <div className="relative h-4 bg-black rounded-full overflow-hidden border border-white/10">
