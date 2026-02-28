@@ -19,12 +19,17 @@ export function useMorseReader() {
   const [rawMorse, setRawMorse] = useState('');
   const [decodedText, setDecodedText] = useState('');
   const [trackingSpot, setTrackingSpot] = useState<{x: number, y: number} | null>(null);
+  
+  const [focusMode, setFocusMode] = useState<'auto' | 'manual'>('auto');
+  const [manualSpot, setManualSpot] = useState<{x: number, y: number} | null>(null);
 
   // Refs for requestAnimationFrame loop to avoid stale closures
   const stateRef = useRef({
     threshold: 150,
     unitTime: 200,
     colorMode: 'grayscale' as 'grayscale' | 'red' | 'green',
+    focusMode: 'auto' as 'auto' | 'manual',
+    manualSpot: null as {x: number, y: number} | null,
     lastLightState: false,
     stateChangeTime: performance.now(),
     currentSymbol: '',
@@ -38,6 +43,8 @@ export function useMorseReader() {
   useEffect(() => { stateRef.current.threshold = threshold; }, [threshold]);
   useEffect(() => { stateRef.current.unitTime = unitTime; }, [unitTime]);
   useEffect(() => { stateRef.current.colorMode = colorMode; }, [colorMode]);
+  useEffect(() => { stateRef.current.focusMode = focusMode; }, [focusMode]);
+  useEffect(() => { stateRef.current.manualSpot = manualSpot; }, [manualSpot]);
 
   const processFrame = useCallback(() => {
     const video = videoRef.current;
@@ -60,30 +67,63 @@ export function useMorseReader() {
     let maxY = 0;
     const s = stateRef.current;
     
-    for (let i = 0; i < frame.data.length; i += 4) {
-      let intensity = 0;
-      if (s.colorMode === 'red') {
-        // Red intensity: Red channel minus average of Blue and Green to isolate red light
-        const red = frame.data[i];
-        const green = frame.data[i+1];
-        const blue = frame.data[i+2];
-        intensity = Math.max(0, red - (green + blue) / 2);
-      } else if (s.colorMode === 'green') {
-        // Green intensity: Green channel minus average of Red and Blue to isolate green light
-        const red = frame.data[i];
-        const green = frame.data[i+1];
-        const blue = frame.data[i+2];
-        intensity = Math.max(0, green - (red + blue) / 2);
-      } else {
-        // Standard grayscale luminance
-        intensity = 0.299 * frame.data[i] + 0.587 * frame.data[i+1] + 0.114 * frame.data[i+2];
-      }
+    if (s.focusMode === 'manual' && s.manualSpot) {
+      // Look at the specific area around the manual spot
+      const x = Math.floor((s.manualSpot.x / 100) * canvas.width);
+      const y = Math.floor((s.manualSpot.y / 100) * canvas.height);
+      const radius = 2; // 5x5 area (small region to allow slight camera movement)
       
-      if (intensity > maxIntensity) {
-        maxIntensity = intensity;
-        const pixelIndex = i / 4;
-        maxX = pixelIndex % canvas.width;
-        maxY = Math.floor(pixelIndex / canvas.width);
+      maxX = x;
+      maxY = y;
+      
+      for (let dy = -radius; dy <= radius; dy++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          const cx = Math.min(Math.max(x + dx, 0), canvas.width - 1);
+          const cy = Math.min(Math.max(y + dy, 0), canvas.height - 1);
+          const idx = (cy * canvas.width + cx) * 4;
+          
+          let intensity = 0;
+          if (s.colorMode === 'red') {
+            intensity = Math.max(0, frame.data[idx] - (frame.data[idx+1] + frame.data[idx+2]) / 2);
+          } else if (s.colorMode === 'green') {
+            intensity = Math.max(0, frame.data[idx+1] - (frame.data[idx] + frame.data[idx+2]) / 2);
+          } else {
+            intensity = 0.299 * frame.data[idx] + 0.587 * frame.data[idx+1] + 0.114 * frame.data[idx+2];
+          }
+          if (intensity > maxIntensity) {
+            maxIntensity = intensity;
+            maxX = cx;
+            maxY = cy;
+          }
+        }
+      }
+    } else {
+      // Auto mode: scan everything
+      for (let i = 0; i < frame.data.length; i += 4) {
+        let intensity = 0;
+        if (s.colorMode === 'red') {
+          // Red intensity: Red channel minus average of Blue and Green to isolate red light
+          const red = frame.data[i];
+          const green = frame.data[i+1];
+          const blue = frame.data[i+2];
+          intensity = Math.max(0, red - (green + blue) / 2);
+        } else if (s.colorMode === 'green') {
+          // Green intensity: Green channel minus average of Red and Blue to isolate green light
+          const red = frame.data[i];
+          const green = frame.data[i+1];
+          const blue = frame.data[i+2];
+          intensity = Math.max(0, green - (red + blue) / 2);
+        } else {
+          // Standard grayscale luminance
+          intensity = 0.299 * frame.data[i] + 0.587 * frame.data[i+1] + 0.114 * frame.data[i+2];
+        }
+        
+        if (intensity > maxIntensity) {
+          maxIntensity = intensity;
+          const pixelIndex = i / 4;
+          maxX = pixelIndex % canvas.width;
+          maxY = Math.floor(pixelIndex / canvas.width);
+        }
       }
     }
     
@@ -228,6 +268,10 @@ export function useMorseReader() {
     decodedText,
     colorMode,
     setColorMode,
-    trackingSpot
+    trackingSpot,
+    focusMode,
+    setFocusMode,
+    manualSpot,
+    setManualSpot
   };
 }

@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Camera, Settings2, Play, Square, Save, RotateCcw, AlertTriangle, Activity, Database, Lightbulb, MessageSquareText, Zap } from "lucide-react";
+import { Camera, Settings2, Play, Square, Save, RotateCcw, AlertTriangle, Activity, Database, Lightbulb, MessageSquareText, Zap, Target } from "lucide-react";
 import { useMorseReader } from "@/hooks/use-morse-reader";
 import { useMessages, useCreateMessage, useDeleteMessage } from "@/hooks/use-messages";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,15 @@ export default function Home() {
     });
   };
 
+  const handleVideoClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!reader.isStreaming) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    reader.setManualSpot({ x, y });
+    reader.setFocusMode('manual');
+  };
+
   return (
     <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-secondary/40 via-background to-background pt-6 pb-12 px-4 sm:px-6 lg:px-8">
       
@@ -43,7 +52,10 @@ export default function Home() {
         {/* LEFT COLUMN: CAMERA & LIVE DECODING */}
         <div className="lg:col-span-8 space-y-6">
           
-          <div className={`relative aspect-video rounded-3xl overflow-hidden bg-black border-2 transition-colors duration-300 ${reader.isLightOn ? 'border-emerald-500 shadow-[0_0_40px_rgba(16,185,129,0.2)]' : 'border-white/10'}`}>
+          <div 
+            className={`relative aspect-video rounded-3xl overflow-hidden bg-black border-2 transition-colors duration-300 ${reader.isStreaming ? 'cursor-crosshair' : ''} ${reader.isLightOn ? 'border-emerald-500 shadow-[0_0_40px_rgba(16,185,129,0.2)]' : 'border-white/10'}`}
+            onClick={handleVideoClick}
+          >
             
             {/* The actual video element */}
             <video 
@@ -160,6 +172,32 @@ export default function Home() {
             </div>
 
             <div className="space-y-8">
+              {/* Focus Mode Toggle */}
+              <div className="space-y-3">
+                <label className="text-sm font-medium">Tracking Mode</label>
+                <div className="grid grid-cols-2 gap-2 p-1 bg-black/20 rounded-xl border border-white/5">
+                  <Button 
+                    variant={reader.focusMode === 'auto' ? 'secondary' : 'ghost'} 
+                    size="sm"
+                    onClick={() => { reader.setFocusMode('auto'); reader.setManualSpot(null); }}
+                    className="rounded-lg h-8 gap-2"
+                  >
+                    <Activity className="w-3 h-3" /> Auto Track
+                  </Button>
+                  <Button 
+                    variant={reader.focusMode === 'manual' ? 'secondary' : 'ghost'} 
+                    size="sm"
+                    onClick={() => reader.setFocusMode('manual')}
+                    className="rounded-lg h-8 gap-2"
+                  >
+                    <Target className="w-3 h-3" /> Manual Focus
+                  </Button>
+                </div>
+                {reader.focusMode === 'manual' && (
+                  <p className="text-xs text-muted-foreground text-center">Tap the camera feed to set target area</p>
+                )}
+              </div>
+
               {/* Signal Mode Toggle */}
               <div className="space-y-3">
                 <label className="text-sm font-medium">Detection Mode</label>
