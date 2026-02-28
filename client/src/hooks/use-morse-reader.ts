@@ -18,6 +18,7 @@ export function useMorseReader() {
   const [isLightOn, setIsLightOn] = useState(false);
   const [rawMorse, setRawMorse] = useState('');
   const [decodedText, setDecodedText] = useState('');
+  const [trackingSpot, setTrackingSpot] = useState<{x: number, y: number} | null>(null);
 
   // Refs for requestAnimationFrame loop to avoid stale closures
   const stateRef = useRef({
@@ -53,28 +54,42 @@ export function useMorseReader() {
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
     
-    // Calculate average perceived brightness or red intensity
-    let sum = 0;
+    // Calculate max intensity spot for small LED detection
+    let maxIntensity = 0;
+    let maxX = 0;
+    let maxY = 0;
     const s = stateRef.current;
+    
     for (let i = 0; i < frame.data.length; i += 4) {
+      let intensity = 0;
       if (s.colorMode === 'red') {
         // Red intensity: Red channel minus average of Blue and Green to isolate red light
         const red = frame.data[i];
         const green = frame.data[i+1];
         const blue = frame.data[i+2];
-        sum += Math.max(0, red - (green + blue) / 2);
+        intensity = Math.max(0, red - (green + blue) / 2);
       } else if (s.colorMode === 'green') {
-        // Green intensity: Green channel minus average of Red and Blue to isolate green light (e.g., Pi onboard LED)
+        // Green intensity: Green channel minus average of Red and Blue to isolate green light
         const red = frame.data[i];
         const green = frame.data[i+1];
         const blue = frame.data[i+2];
-        sum += Math.max(0, green - (red + blue) / 2);
+        intensity = Math.max(0, green - (red + blue) / 2);
       } else {
         // Standard grayscale luminance
-        sum += 0.299 * frame.data[i] + 0.587 * frame.data[i+1] + 0.114 * frame.data[i+2];
+        intensity = 0.299 * frame.data[i] + 0.587 * frame.data[i+1] + 0.114 * frame.data[i+2];
+      }
+      
+      if (intensity > maxIntensity) {
+        maxIntensity = intensity;
+        const pixelIndex = i / 4;
+        maxX = pixelIndex % canvas.width;
+        maxY = Math.floor(pixelIndex / canvas.width);
       }
     }
-    const brightness = sum / (canvas.width * canvas.height);
+    
+    // Use the single brightest pixel's intensity rather than the average.
+    // This allows detecting tiny LEDs from far away without the background diluting the signal.
+    const brightness = maxIntensity;
     
     const isOn = brightness > s.threshold;
     const now = performance.now();
@@ -84,6 +99,10 @@ export function useMorseReader() {
     s.frameCount++;
     if (s.frameCount % 6 === 0) {
       setCurrentBrightness(Math.round(brightness));
+      setTrackingSpot({ 
+        x: (maxX / canvas.width) * 100, 
+        y: (maxY / canvas.height) * 100 
+      });
     }
 
     if (isOn !== s.lastLightState) {
@@ -208,6 +227,7 @@ export function useMorseReader() {
     rawMorse,
     decodedText,
     colorMode,
-    setColorMode
+    setColorMode,
+    trackingSpot
   };
 }

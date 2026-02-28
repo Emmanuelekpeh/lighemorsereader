@@ -56,6 +56,25 @@ export default function Home() {
             {/* Hidden canvas for processing */}
             <canvas ref={reader.canvasRef} width="64" height="64" className="hidden" />
 
+            {/* Tracking Spot Overlay */}
+            {reader.isStreaming && reader.trackingSpot && (
+              <div 
+                className={`absolute w-12 h-12 border-2 rounded-xl pointer-events-none transition-all duration-75 transform -translate-x-1/2 -translate-y-1/2 ${
+                  reader.isLightOn 
+                    ? 'border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.8)] scale-110' 
+                    : 'border-white/30 scale-100'
+                }`}
+                style={{ 
+                  left: `${reader.trackingSpot.x}%`, 
+                  top: `${reader.trackingSpot.y}%` 
+                }}
+              >
+                <div className={`absolute top-1/2 left-1/2 w-1.5 h-1.5 rounded-full -translate-x-1/2 -translate-y-1/2 ${
+                  reader.isLightOn ? 'bg-emerald-400' : 'bg-white/50'
+                }`} />
+              </div>
+            )}
+
             {/* Overlay State UI */}
             {!reader.isStreaming && !reader.cameraError && (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm">
