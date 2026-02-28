@@ -219,21 +219,37 @@ export function useMorseReader() {
       if (brightness < s.localMin) s.localMin = brightness;
       
       // Slow decay to adapt to changing ambient light
-      s.localMax -= 0.5;
-      s.localMin += 0.5;
+      s.localMax -= 0.3;
+      s.localMin += 0.3;
       
       // Keep bounds
       if (s.localMax < brightness) s.localMax = brightness;
       if (s.localMin > brightness) s.localMin = brightness;
       
-      // Only adjust threshold if we have a reasonable spread (prevent noise from triggering)
-      if (s.localMax - s.localMin > 10) {
-        // Set threshold halfway between min and max
-        s.threshold = s.localMin + (s.localMax - s.localMin) * 0.5; 
+      // Require a meaningful spread before adjusting threshold.
+      // Camera noise alone produces ~10-20 points of variation,
+      // so we need a real on/off signal difference to adapt.
+      if (s.localMax - s.localMin > 35) {
+        // Bias toward the max: require brightness to be in the upper 30% of the
+        // observed range to trigger. This prevents noise in the lower range
+        // from being mistaken for a signal.
+        s.threshold = s.localMin + (s.localMax - s.localMin) * 0.65; 
       }
     }
     
-    const rawIsOn = brightness > s.threshold;
+    // Absolute brightness floor: never consider anything below this as a signal,
+    // regardless of what auto-threshold calculates. Camera sensor noise in a dark
+    // scene can hover at 20-40, so 25 is a safe floor.
+    const BRIGHTNESS_FLOOR = 25;
+    const effectiveThreshold = Math.max(s.threshold, BRIGHTNESS_FLOOR);
+    
+    // Hysteresis: use a band around the threshold so that once the light is detected
+    // as ON, it must drop further below threshold to turn OFF. This prevents rapid
+    // toggling when brightness hovers near the threshold line.
+    const hysteresisBand = Math.max(5, (s.localMax - s.localMin) * 0.1);
+    const rawIsOn = s.lastLightState 
+      ? brightness > (effectiveThreshold - hysteresisBand)   // already on: needs to drop below threshold - band
+      : brightness > (effectiveThreshold + hysteresisBand);  // currently off: needs to rise above threshold + band
     
     // Debounce light state to filter out 1-frame camera glitches / noise
     if (rawIsOn !== s.pendingLightState) {
@@ -242,9 +258,12 @@ export function useMorseReader() {
     }
     
     let isOn = s.lastLightState;
-    // Require the state to be stable for a fraction of the dot duration to register as a genuine change.
-    // This dynamically scales with unitTime to allow for very fast machine-generated morse from a Pico.
-    const debounceTime = Math.min(20, s.unitTime * 0.3);
+    // Require the state to be stable for enough frames to filter camera noise.
+    // Use asymmetric debounce (hysteresis): require longer stability to turn ON
+    // than to turn OFF, since false "on" triggers are the main problem.
+    const debounceOn = Math.max(40, s.unitTime * 0.25);
+    const debounceOff = Math.max(30, s.unitTime * 0.2);
+    const debounceTime = s.pendingLightState ? debounceOn : debounceOff;
     if (s.pendingLightState !== s.lastLightState && (now - s.pendingLightStateTime) >= debounceTime) {
       isOn = s.pendingLightState;
     }
