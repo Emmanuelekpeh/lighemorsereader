@@ -129,10 +129,10 @@ export function useMorseReader() {
     const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
     
     // Calculate max intensity spot for small LED detection
+    const s = stateRef.current;
     let maxIntensity = -1;
     let maxX = s.lastTrackX !== -1 ? s.lastTrackX : Math.floor(canvas.width / 2);
     let maxY = s.lastTrackY !== -1 ? s.lastTrackY : Math.floor(canvas.height / 2);
-    const s = stateRef.current;
     
     // Optimized pixel reading loop (using typed arrays where possible could improve performance further, 
     // but a 64x64 canvas means only 4096 iterations which takes < 1ms on modern devices)
