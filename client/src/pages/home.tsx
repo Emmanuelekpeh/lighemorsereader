@@ -144,7 +144,7 @@ export default function Home() {
               {/* Signal Mode Toggle */}
               <div className="space-y-3">
                 <label className="text-sm font-medium">Detection Mode</label>
-                <div className="grid grid-cols-2 gap-2 p-1 bg-black/20 rounded-xl border border-white/5">
+                <div className="grid grid-cols-3 gap-2 p-1 bg-black/20 rounded-xl border border-white/5">
                   <Button 
                     variant={reader.colorMode === 'grayscale' ? 'secondary' : 'ghost'} 
                     size="sm"
@@ -160,6 +160,14 @@ export default function Home() {
                     className="rounded-lg h-8 gap-2"
                   >
                     <Zap className="w-3 h-3 text-red-500" /> Red LED
+                  </Button>
+                  <Button 
+                    variant={reader.colorMode === 'green' ? 'secondary' : 'ghost'} 
+                    size="sm"
+                    onClick={() => reader.setColorMode('green')}
+                    className="rounded-lg h-8 gap-2"
+                  >
+                    <Activity className="w-3 h-3 text-emerald-500" /> Green Pi
                   </Button>
                 </div>
               </div>

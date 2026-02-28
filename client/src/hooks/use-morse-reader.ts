@@ -11,7 +11,7 @@ export function useMorseReader() {
   // Adjustable settings
   const [threshold, setThreshold] = useState(150); // 0-255 brightness
   const [unitTime, setUnitTime] = useState(200); // ms per dot
-  const [colorMode, setColorMode] = useState<'grayscale' | 'red'>('grayscale');
+  const [colorMode, setColorMode] = useState<'grayscale' | 'red' | 'green'>('grayscale');
   
   // Live state for UI
   const [currentBrightness, setCurrentBrightness] = useState(0);
@@ -23,7 +23,7 @@ export function useMorseReader() {
   const stateRef = useRef({
     threshold: 150,
     unitTime: 200,
-    colorMode: 'grayscale' as 'grayscale' | 'red',
+    colorMode: 'grayscale' as 'grayscale' | 'red' | 'green',
     lastLightState: false,
     stateChangeTime: performance.now(),
     currentSymbol: '',
@@ -63,6 +63,12 @@ export function useMorseReader() {
         const green = frame.data[i+1];
         const blue = frame.data[i+2];
         sum += Math.max(0, red - (green + blue) / 2);
+      } else if (s.colorMode === 'green') {
+        // Green intensity: Green channel minus average of Red and Blue to isolate green light (e.g., Pi onboard LED)
+        const red = frame.data[i];
+        const green = frame.data[i+1];
+        const blue = frame.data[i+2];
+        sum += Math.max(0, green - (red + blue) / 2);
       } else {
         // Standard grayscale luminance
         sum += 0.299 * frame.data[i] + 0.587 * frame.data[i+1] + 0.114 * frame.data[i+2];
